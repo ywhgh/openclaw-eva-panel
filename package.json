@@ -1,0 +1,20 @@
+{
+  "name": "openclaw-eva-panel",
+  "version": "1.0.0",
+  "description": "OpenClaw NERV-style Geek Dashboard",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "panel:start": "scripts\\start.cmd",
+    "panel:stop": "scripts\\stop.cmd",
+    "panel:restart": "scripts\\restart.cmd",
+    "panel:status": "scripts\\status.cmd",
+    "panel:logs": "scripts\\logs.cmd"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "systeminformation": "^5.31.5",
+    "ws": "^8.20.0"
+  }
+}

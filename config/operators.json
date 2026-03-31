@@ -1,0 +1,8 @@
+﻿[
+  { "id": 1, "name": "AYANAMI REI", "nameJp": "綾波レイ", "role": "PILOT UNIT-00", "status": "ACTIVE", "sync": 99.2 },
+  { "id": 2, "name": "IKARI SHINJI", "nameJp": "碇シンジ", "role": "PILOT UNIT-01", "status": "ACTIVE", "sync": 87.4 },
+  { "id": 3, "name": "SORYU ASUKA", "nameJp": "惣流アスカ", "role": "PILOT UNIT-02", "status": "STANDBY", "sync": 91.8 },
+  { "id": 4, "name": "IBUKI MAYA", "nameJp": "伊吹マヤ", "role": "SYSTEMS OPS", "status": "ACTIVE", "sync": 78.5 },
+  { "id": 5, "name": "HYUGA MAKOTO", "nameJp": "日向マコト", "role": "TACTICAL OPS", "status": "ACTIVE", "sync": 82.1 },
+  { "id": 6, "name": "AOBA SHIGERU", "nameJp": "青葉シゲル", "role": "COMMS OPS", "status": "ERROR", "sync": 12.3 }
+]
