@@ -1,63 +1,78 @@
 # OPENCLAW EVA PANEL
 
-NERV / MAGI 风格的本地实时监控面板，用来展示主机状态与 OpenClaw 运行概况。
+> A local NERV / MAGI-style realtime dashboard for host monitoring and OpenClaw status.
 
-## 当前能力
+![Platform](https://img.shields.io/badge/platform-Windows-blue)
+![Node](https://img.shields.io/badge/node-%3E%3D18-green)
+![License](https://img.shields.io/badge/license-MIT-black)
 
-- CPU 实时负载与核心占用
-- 内存使用率
-- 磁盘占用
-- 进程 TOP 列表
-- 网络接口识别与实时收发速率
-- OpenClaw 模型 / 会话 / 网关状态展示
-- 操作员状态面板
-- 多主题、多语言切换
+OPENCLAW EVA PANEL is a local monitoring dashboard with an Evangelion-inspired control-room aesthetic. It is designed for a Windows machine running OpenClaw or related local tooling, and provides a single-screen overview of system load, process activity, network state, and OpenClaw session status.
 
-## 环境要求
+## Features
+
+- Realtime CPU load and per-core usage
+- Memory usage and capacity overview
+- Disk utilization panel
+- Top process list by CPU usage
+- Network interface selection with Windows fallback for real adapters
+- OpenClaw model / session / gateway summary panel
+- Operator status cards from configurable JSON
+- Theme switching and multilingual UI support
+
+## Tech Stack
+
+- Node.js
+- Express
+- WebSocket (`ws`)
+- `systeminformation`
+- Static frontend (HTML / CSS / JS)
+
+## Requirements
 
 - Windows
 - Node.js 18+
 
-## 安装
+## Install
 
 ```bash
 npm install
 ```
 
-## 启动方式
+## Run
 
-### 方式 1：直接启动
+### Direct
 
 ```bash
 npm start
 ```
 
-启动后打开：
+Then open:
 
 ```text
 http://localhost:3000
 ```
 
-### 方式 2：使用脚本稳定启动（推荐）
-
-项目内已提供 Windows 启动脚本：
-
-```text
-scripts\start.cmd   启动面板
-scripts\stop.cmd    停止面板
-scripts\status.cmd  查看运行状态
-scripts\logs.cmd    查看实时日志
-```
-
-推荐日常使用：
+### Stable script-based workflow
 
 ```cmd
 scripts\start.cmd
 scripts\status.cmd
 scripts\logs.cmd
+scripts\restart.cmd
+scripts\stop.cmd
 ```
 
-## 目录结构
+Equivalent npm commands are also available:
+
+```cmd
+npm run panel:start
+npm run panel:status
+npm run panel:logs
+npm run panel:restart
+npm run panel:stop
+```
+
+## Project Structure
 
 ```text
 openclaw-eva-panel/
@@ -72,16 +87,20 @@ openclaw-eva-panel/
 ├─ scripts/
 │  ├─ start.cmd
 │  ├─ stop.cmd
+│  ├─ restart.cmd
 │  ├─ status.cmd
 │  └─ logs.cmd
 ├─ server.js
 ├─ package.json
-└─ README.md
+├─ README.md
+└─ LICENSE
 ```
 
-## 操作员配置
+## Configuration
 
-编辑 `config/operators.json`：
+### Operators
+
+Edit `config/operators.json`:
 
 ```json
 [
@@ -96,48 +115,43 @@ openclaw-eva-panel/
 ]
 ```
 
-支持的 `status`：
+Supported `status` values:
 
 - `ACTIVE`
 - `STANDBY`
 - `ERROR`
 
-## 说明
+### Port
 
-- 默认端口：`3000`
-- 可通过环境变量 `PORT` 覆盖端口
-- 网络速率在 Windows 下会优先选择真实物理网卡，尽量避开虚拟网卡/VPN/TUN 接口
-- OpenClaw 状态区当前为本地集成展示，依赖本机工作区中的 `.openclaw/workspace` 内容
+Default port is `3000`.
 
-## 常见操作
-
-### 修改端口
+Override it with:
 
 ```cmd
 set PORT=3001 && npm start
 ```
 
-### 停止旧进程后重启
+## Notes
 
-```cmd
-scripts\stop.cmd
-scripts\start.cmd
-```
+- This project is intended for local use.
+- Network statistics on Windows try to prefer real physical adapters over virtual/TUN/VPN interfaces.
+- The OpenClaw panel reads local workspace context from `.openclaw/workspace` when available.
 
-## 日志
+## Logs
 
-默认日志文件：
+Default log files:
 
 ```text
 server.log
+server.err.log
 ```
 
-实时查看：
+Realtime tail:
 
 ```cmd
 scripts\logs.cmd
 ```
 
-## 备注
+## License
 
-这是一个本地面板项目，适合放在个人开发机或 OpenClaw 所在机器上常驻运行。
+MIT
