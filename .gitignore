@@ -1,7 +1,9 @@
 node_modules/
 server.log
+server.err.log
 run/
 *.pid
 *.tmp
 .DS_Store
 Thumbs.db
+test123.txt
