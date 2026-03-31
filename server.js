@@ -15,8 +15,13 @@ const ROOT_DIR = __dirname;
 const PUBLIC_DIR = path.join(ROOT_DIR, 'public');
 const CONFIG_DIR = path.join(ROOT_DIR, 'config');
 const OPERATORS_FILE = path.join(CONFIG_DIR, 'operators.json');
-const OPENCLAW_MEMORY_DIR = path.join(os.homedir(), '.openclaw', 'workspace', 'memory');
-const OPENCLAW_MEMORY_FILE = path.join(os.homedir(), '.openclaw', 'workspace', 'MEMORY.md');
+
+const OPENCLAW_DIR = path.join(os.homedir(), '.openclaw');
+const OPENCLAW_CONFIG_FILE = path.join(OPENCLAW_DIR, 'openclaw.json');
+const OPENCLAW_WORKSPACE_DIR = path.join(OPENCLAW_DIR, 'workspace');
+const OPENCLAW_MEMORY_DIR = path.join(OPENCLAW_WORKSPACE_DIR, 'memory');
+const OPENCLAW_MEMORY_FILE = path.join(OPENCLAW_WORKSPACE_DIR, 'MEMORY.md');
+const OPENCLAW_SESSION_DIR = path.join(OPENCLAW_DIR, 'agents', 'main', 'sessions');
 
 const app = express();
 const server = http.createServer(app);
@@ -24,19 +29,6 @@ const wss = new WebSocket.Server({ server });
 
 app.use(express.json());
 app.use(express.static(PUBLIC_DIR));
-
-const openclawState = {
-  model: 'custom-localhost-8317/gpt-5.4',
-  tokensIn: 0,
-  tokensOut: 0,
-  contextPct: 18.5,
-  apiHealth: 'OK',
-  sessions: [],
-  agents: [],
-  gatewayOnline: true,
-  operatorStatus: { summary: 'ACTIVE' },
-  lastUpdated: null,
-};
 
 const systemCache = {
   cpu: { load: '0.0', cores: [] },
@@ -52,59 +44,20 @@ let lastNetworkStats = null;
 let lastNetworkAt = Date.now();
 let lastWindowsNetworkSample = null;
 
-function safeReadJson(filePath, fallback) {
+function safeReadText(filePath, fallback = '') {
   try {
-    const raw = fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '');
-    return JSON.parse(raw);
+    return fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '');
   } catch {
     return fallback;
   }
 }
 
-function loadOperators() {
-  return safeReadJson(OPERATORS_FILE, []);
-}
-
-function detectModelFromMemory() {
+function safeReadJson(filePath, fallback) {
   try {
-    const text = fs.readFileSync(OPENCLAW_MEMORY_FILE, 'utf8');
-    const match = text.match(/当前默认模型应为\s*`([^`]+)`/) || text.match(/default model.*?`([^`]+)`/i);
-    return match?.[1] || openclawState.model;
+    return JSON.parse(safeReadText(filePath));
   } catch {
-    return openclawState.model;
+    return fallback;
   }
-}
-
-function updateOpenClawState() {
-  openclawState.model = detectModelFromMemory();
-
-  try {
-    const files = fs.readdirSync(OPENCLAW_MEMORY_DIR)
-      .filter(name => /^\d{4}-\d{2}-\d{2}\.md$/.test(name))
-      .sort()
-      .reverse();
-
-    const today = new Date().toISOString().slice(0, 10) + '.md';
-    openclawState.sessions = files.slice(0, 4).map((name, index) => ({
-      id: name,
-      label: name.replace('.md', ''),
-      model: openclawState.model,
-      status: name === today ? 'ACTIVE' : index === 0 ? 'STANDBY' : 'IDLE',
-      tokensIn: 1200 + index * 300,
-      tokensOut: 800 + index * 220,
-    }));
-    openclawState.agents = openclawState.sessions;
-  } catch {
-    openclawState.sessions = [];
-    openclawState.agents = [];
-  }
-
-  openclawState.tokensIn = 48210;
-  openclawState.tokensOut = 21984;
-  openclawState.contextPct = 18.5;
-  openclawState.gatewayOnline = true;
-  openclawState.apiHealth = 'OK';
-  openclawState.lastUpdated = new Date().toISOString();
 }
 
 function withTimeout(promise, fallback, ms = 5000) {
@@ -114,13 +67,258 @@ function withTimeout(promise, fallback, ms = 5000) {
   ]);
 }
 
+function readOpenClawConfig() {
+  return safeReadJson(OPENCLAW_CONFIG_FILE, {});
+}
+
+function loadOperators() {
+  return safeReadJson(OPERATORS_FILE, []);
+}
+
+function flattenInstalledModels(cfg) {
+  const providers = cfg?.models?.providers || {};
+  return Object.entries(providers).flatMap(([providerId, provider]) => {
+    const models = Array.isArray(provider.models) ? provider.models : [];
+    return models.map(model => ({
+      provider: providerId,
+      id: `${providerId}/${model.id}`,
+      name: model.name || model.id,
+      contextWindow: model.contextWindow || 0,
+      maxTokens: model.maxTokens || 0,
+      reasoning: !!model.reasoning,
+      api: provider.api || model.api || 'unknown',
+      alias: cfg?.agents?.defaults?.models?.[`${providerId}/${model.id}`]?.alias || null,
+    }));
+  });
+}
+
+function pickCurrentRuntimeModel() {
+  const sessionFiles = getRecentSessionFiles(1);
+  if (!sessionFiles.length) {
+    return readOpenClawConfig()?.agents?.defaults?.model?.primary || 'unknown';
+  }
+
+  const tail = safeReadTail(sessionFiles[0].fullPath, 60);
+  for (let i = tail.length - 1; i >= 0; i -= 1) {
+    try {
+      const item = JSON.parse(tail[i]);
+      const model = item?.message?.model || item?.message?.usage?.model;
+      const provider = item?.message?.provider;
+      if (provider && model && !String(model).includes('/')) return `${provider}/${model}`;
+      if (model) return model;
+    } catch {}
+  }
+
+  return readOpenClawConfig()?.agents?.defaults?.model?.primary || 'unknown';
+}
+
+function safeReadTail(filePath, lineCount = 20) {
+  try {
+    const text = safeReadText(filePath, '');
+    return text.split(/\r?\n/).filter(Boolean).slice(-lineCount);
+  } catch {
+    return [];
+  }
+}
+
+function getRecentSessionFiles(limit = 8) {
+  try {
+    return fs.readdirSync(OPENCLAW_SESSION_DIR)
+      .filter(name => name.endsWith('.jsonl'))
+      .map(name => {
+        const fullPath = path.join(OPENCLAW_SESSION_DIR, name);
+        const stat = fs.statSync(fullPath);
+        return { name, fullPath, stat };
+      })
+      .sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs)
+      .slice(0, limit);
+  } catch {
+    return [];
+  }
+}
+
+function parseSessionSummary(fileInfo) {
+  const lines = safeReadTail(fileInfo.fullPath, 80);
+  let model = 'unknown';
+  let provider = 'unknown';
+  let lastAssistantText = '';
+  let updatedAt = fileInfo.stat.mtime.toISOString();
+  let usageIn = 0;
+  let usageOut = 0;
+
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    try {
+      const item = JSON.parse(lines[i]);
+      if (item?.timestamp && !updatedAt) updatedAt = item.timestamp;
+      const msg = item?.message;
+      if (msg?.model) model = msg.model;
+      if (msg?.provider) provider = msg.provider;
+      if (msg?.usage?.input) usageIn = msg.usage.input;
+      if (msg?.usage?.output) usageOut = msg.usage.output;
+      if (!lastAssistantText && msg?.role === 'assistant') {
+        const content = Array.isArray(msg.content) ? msg.content : [];
+        const textPart = content.find(part => part.type === 'text' && part.text)?.text;
+        if (textPart) lastAssistantText = textPart.slice(0, 120);
+      }
+      if (model !== 'unknown' && provider !== 'unknown' && lastAssistantText) break;
+    } catch {}
+  }
+
+  const sessionId = fileInfo.name.replace(/\.jsonl$/, '');
+  const sessionLabel = sessionId.slice(0, 8);
+  return {
+    id: sessionId,
+    label: sessionLabel,
+    model: provider !== 'unknown' && !String(model).includes('/') ? `${provider}/${model}` : model,
+    provider,
+    updatedAt,
+    tokensIn: usageIn,
+    tokensOut: usageOut,
+    preview: lastAssistantText,
+    status: 'ACTIVE',
+  };
+}
+
+function buildSessionPanelData() {
+  const files = getRecentSessionFiles(6);
+  return files.map((file, index) => ({
+    ...parseSessionSummary(file),
+    isCurrent: index === 0,
+  }));
+}
+
+function extractSection(text, heading) {
+  const lines = String(text || '').split(/\r?\n/);
+  const start = lines.findIndex(line => line.trim() === heading.trim());
+  if (start === -1) return [];
+  const result = [];
+  for (let i = start + 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (/^##\s+/.test(line)) break;
+    if (line.trim()) result.push(line.trim());
+  }
+  return result.slice(0, 8);
+}
+
+function buildMemoryPanelData() {
+  const longMemory = safeReadText(OPENCLAW_MEMORY_FILE, '');
+  const recentDailyFiles = [];
+  const preferences = extractSection(longMemory, '## 当前偏好与系统设置');
+  const recentContext = extractSection(longMemory, '## 最近一次已确认的对话上下文');
+  const projectState = extractSection(longMemory, '## openclaw-eva-panel 项目记录');
+
+  try {
+    const dailyFiles = fs.readdirSync(OPENCLAW_MEMORY_DIR)
+      .filter(name => /^\d{4}-\d{2}-\d{2}\.md$/.test(name))
+      .map(name => ({
+        name,
+        fullPath: path.join(OPENCLAW_MEMORY_DIR, name),
+        stat: fs.statSync(path.join(OPENCLAW_MEMORY_DIR, name)),
+      }))
+      .sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs)
+      .slice(0, 3);
+
+    for (const file of dailyFiles) {
+      const text = safeReadText(file.fullPath, '');
+      recentDailyFiles.push({
+        name: file.name,
+        preview: text.split(/\r?\n/).filter(Boolean).slice(0, 12).join('\n').slice(0, 600),
+        updatedAt: file.stat.mtime.toISOString(),
+      });
+    }
+  } catch {}
+
+  return {
+    longMemoryPreview: longMemory.split(/\r?\n/).filter(Boolean).slice(0, 30).join('\n').slice(0, 1500),
+    digest: {
+      preferences,
+      recentContext,
+      projectState,
+    },
+    recentDailyFiles,
+  };
+}
+
+function buildChannelsPanelData(cfg) {
+  const channels = cfg?.channels || {};
+  const plugins = cfg?.plugins?.entries || {};
+  const result = [];
+
+  for (const [channelId, channelCfg] of Object.entries(channels)) {
+    result.push({
+      id: channelId,
+      name: channelId.toUpperCase(),
+      enabled: !!channelCfg?.enabled,
+      status: channelCfg?.enabled ? 'ONLINE' : 'OFFLINE',
+      detail: channelCfg?.enabled ? 'configured' : 'disabled',
+    });
+  }
+
+  for (const [pluginId, pluginCfg] of Object.entries(plugins)) {
+    if (!result.find(item => item.id === pluginId)) {
+      result.push({
+        id: pluginId,
+        name: pluginId,
+        enabled: !!pluginCfg?.enabled,
+        status: pluginCfg?.enabled ? 'ONLINE' : 'OFFLINE',
+        detail: pluginCfg?.enabled ? 'plugin enabled' : 'plugin disabled',
+      });
+    }
+  }
+
+  return result;
+}
+
+function buildModelUsageData(installedModels, sessions, currentModel) {
+  const counts = new Map();
+  installedModels.forEach(model => counts.set(model.id, 0));
+  sessions.forEach(session => {
+    const key = session.model;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  });
+  if (currentModel) counts.set(currentModel, (counts.get(currentModel) || 0) + 1);
+
+  return [...counts.entries()]
+    .filter(([, count]) => count > 0)
+    .map(([id, count]) => {
+      const model = installedModels.find(item => item.id === id) || { id, name: id, alias: null };
+      return {
+        id,
+        name: model.alias || model.name || id,
+        fullId: id,
+        count,
+      };
+    })
+    .sort((a, b) => b.count - a.count);
+}
+
+function buildDashboardMeta() {
+  const cfg = readOpenClawConfig();
+  const installedModels = flattenInstalledModels(cfg);
+  const sessions = buildSessionPanelData();
+  const currentModel = pickCurrentRuntimeModel();
+  const currentAlias = cfg?.agents?.defaults?.models?.[currentModel]?.alias || installedModels.find(item => item.id === currentModel)?.alias || null;
+
+  return {
+    now: new Date().toISOString(),
+    currentModel: {
+      id: currentModel,
+      alias: currentAlias,
+      defaultModel: cfg?.agents?.defaults?.model?.primary || 'unknown',
+    },
+    sessions,
+    installedModels,
+    modelUsage: buildModelUsageData(installedModels, sessions, currentModel),
+    channels: buildChannelsPanelData(cfg),
+    memory: buildMemoryPanelData(),
+  };
+}
+
 async function refreshCpu() {
   const currentLoad = await withTimeout(si.currentLoad(), { currentLoad: 0, cpus: [] }, 2000);
   systemCache.cpu = {
     load: Number(currentLoad.currentLoad || 0).toFixed(1),
-    cores: Array.isArray(currentLoad.cpus)
-      ? currentLoad.cpus.map(cpu => Number(cpu.load || 0).toFixed(1))
-      : [],
+    cores: Array.isArray(currentLoad.cpus) ? currentLoad.cpus.map(cpu => Number(cpu.load || 0).toFixed(1)) : [],
   };
 }
 
@@ -137,7 +335,6 @@ async function refreshMemory() {
 async function refreshDisk() {
   const fsSize = await withTimeout(si.fsSize(), [], 3000);
   const preferred = fsSize.find(item => String(item.mount || '').toUpperCase().startsWith('C:')) || fsSize[0] || {};
-
   systemCache.disk = {
     total: preferred.size || 0,
     used: preferred.used || 0,
@@ -154,30 +351,23 @@ async function refreshProcesses() {
       name: item.name,
       pid: item.pid,
       cpu: Number(item.cpu || 0).toFixed(1),
-      mem: item.memRss
-        ? (item.memRss / 1024 / 1024).toFixed(0)
-        : item.memVsz
-          ? (item.memVsz / 1024 / 1024).toFixed(0)
-          : '0',
+      mem: item.memRss ? (item.memRss / 1024 / 1024).toFixed(0) : item.memVsz ? (item.memVsz / 1024 / 1024).toFixed(0) : '0',
     }));
 }
 
 function scoreNetworkInterface(item) {
   const text = `${item.iface || ''} ${item.ifaceName || ''} ${item.type || ''}`.toLowerCase();
   let score = 0;
-
   if (item.ip4 && !item.internal) score += 100;
   if (/ethernet|wi-?fi|wireless|wlan/.test(text)) score += 60;
   if (/realtek|intel|broadcom|qualcomm|mediatek/.test(text)) score += 40;
   if (/bluetooth/.test(text)) score -= 40;
   if (/mihomo|tun|tap|vpn|virtual|vmware|hyper-v|loopback|vethernet|docker|tailscale|zerotier/.test(text)) score -= 120;
-
   return score;
 }
 
 async function getWindowsNetBytes(interfaceName) {
   if (process.platform !== 'win32' || !interfaceName) return null;
-
   try {
     const escaped = String(interfaceName).replace(/'/g, "''");
     const script = [
@@ -186,21 +376,13 @@ async function getWindowsNetBytes(interfaceName) {
       `$stats = Get-NetAdapterStatistics -Name '${escaped}' | Select-Object ReceivedBytes,SentBytes`,
       "$stats | ConvertTo-Json -Compress",
     ].join('; ');
-
     const encoded = Buffer.from(script, 'utf16le').toString('base64');
-    const { stdout } = await execAsync(
-      `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encoded}`,
-      { timeout: 10000, maxBuffer: 1024 * 1024 }
-    );
-
+    const { stdout } = await execAsync(`powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encoded}`, { timeout: 10000, maxBuffer: 1024 * 1024 });
     const parsed = JSON.parse((stdout || '').trim());
     if (parsed && typeof parsed.ReceivedBytes === 'number' && typeof parsed.SentBytes === 'number') {
       return { rx_bytes: parsed.ReceivedBytes, tx_bytes: parsed.SentBytes };
     }
-  } catch {
-    return null;
-  }
-
+  } catch {}
   return null;
 }
 
@@ -212,12 +394,9 @@ async function refreshNetwork() {
 
   const sortedInterfaces = [...(networkInterfaces || [])].sort((a, b) => scoreNetworkInterface(b) - scoreNetworkInterface(a));
   const primaryInterface = sortedInterfaces[0] || {};
-
   const interfaceMap = new Map((networkInterfaces || []).map(item => [item.iface, item]));
-  let rankedStats = (networkStats || [])
-    .map(item => ({ ...item, _meta: interfaceMap.get(item.iface) || {} }))
+  let rankedStats = (networkStats || []).map(item => ({ ...item, _meta: interfaceMap.get(item.iface) || {} }))
     .sort((a, b) => scoreNetworkInterface(b._meta) - scoreNetworkInterface(a._meta));
-
   let preferred = rankedStats[0] || null;
 
   if ((!preferred || scoreNetworkInterface(preferred._meta || {}) < scoreNetworkInterface(primaryInterface)) && primaryInterface.iface) {
@@ -235,35 +414,16 @@ async function refreshNetwork() {
 
   if (preferred) {
     let previous = null;
-
-    if (Array.isArray(lastNetworkStats)) {
-      previous = lastNetworkStats.find(item => item.iface === preferred.iface) || null;
-    }
-
-    if (!previous && lastWindowsNetworkSample && lastWindowsNetworkSample.iface === preferred.iface) {
-      previous = lastWindowsNetworkSample;
-    }
-
+    if (Array.isArray(lastNetworkStats)) previous = lastNetworkStats.find(item => item.iface === preferred.iface) || null;
+    if (!previous && lastWindowsNetworkSample && lastWindowsNetworkSample.iface === preferred.iface) previous = lastWindowsNetworkSample;
     if (previous) {
       rx = Math.max(0, Math.round(((preferred.rx_bytes || 0) - (previous.rx_bytes || 0)) / deltaSeconds));
       tx = Math.max(0, Math.round(((preferred.tx_bytes || 0) - (previous.tx_bytes || 0)) / deltaSeconds));
     }
   }
 
-  lastNetworkStats = rankedStats.map(item => ({
-    iface: item.iface,
-    rx_bytes: item.rx_bytes || 0,
-    tx_bytes: item.tx_bytes || 0,
-  }));
-
-  if (preferred) {
-    lastWindowsNetworkSample = {
-      iface: preferred.iface,
-      rx_bytes: preferred.rx_bytes || 0,
-      tx_bytes: preferred.tx_bytes || 0,
-    };
-  }
-
+  lastNetworkStats = rankedStats.map(item => ({ iface: item.iface, rx_bytes: item.rx_bytes || 0, tx_bytes: item.tx_bytes || 0 }));
+  if (preferred) lastWindowsNetworkSample = { iface: preferred.iface, rx_bytes: preferred.rx_bytes || 0, tx_bytes: preferred.tx_bytes || 0 };
   lastNetworkAt = now;
 
   const shownInterface = preferred?._meta || primaryInterface || {};
@@ -299,14 +459,12 @@ function startRefreshLoops() {
   setInterval(() => safeRefresh('processes', refreshProcesses), 3000);
   setInterval(() => safeRefresh('network', refreshNetwork), 3000);
   setInterval(() => {
-    updateOpenClawState();
     systemCache.uptime = os.uptime();
     systemCache.time = new Date().toISOString();
   }, 2000);
 }
 
-function getSystemSnapshot() {
-  updateOpenClawState();
+function getRealtimeSnapshot() {
   return {
     time: systemCache.time || new Date().toISOString(),
     cpu: { ...systemCache.cpu },
@@ -315,7 +473,7 @@ function getSystemSnapshot() {
     disk: { ...systemCache.disk },
     uptime: systemCache.uptime || os.uptime(),
     processes: Array.isArray(systemCache.processes) ? [...systemCache.processes] : [],
-    openclaw: { ...openclawState },
+    dashboard: buildDashboardMeta(),
   };
 }
 
@@ -324,61 +482,39 @@ app.get('/api/operators', (_req, res) => {
 });
 
 app.get('/api/openclaw/status', (_req, res) => {
-  updateOpenClawState();
-  res.json(openclawState);
+  const meta = buildDashboardMeta();
+  res.json({
+    model: meta.currentModel.id,
+    modelAlias: meta.currentModel.alias,
+    defaultModel: meta.currentModel.defaultModel,
+    sessions: meta.sessions,
+    installedModels: meta.installedModels.length,
+    channels: meta.channels,
+    lastUpdated: new Date().toISOString(),
+  });
 });
 
 app.get('/api/openclaw/models', (_req, res) => {
-  res.json([
-    { id: 'custom-localhost-8317/gpt-5.4', label: 'GPT5.4' },
-    { id: 'free_api/gpt-5.4', label: 'FreeGPT' },
-    { id: 'free_api/claude-sonnet-4.6', label: 'FreeClaude' },
-    { id: 'free_api/grok-4.1-fast', label: 'FreeGrok' },
-    { id: 'moonshot/kimi-k2.5', label: 'Kimi' },
-    { id: 'codeflow/claude-sonnet-4-5-20250929', label: 'Sonnet' },
-  ]);
+  const meta = buildDashboardMeta();
+  res.json(meta.installedModels);
 });
 
-app.post('/api/openclaw/switch-model', (req, res) => {
-  const { model } = req.body || {};
-  if (!model) {
-    return res.status(400).json({ error: 'model required' });
-  }
-
-  try {
-    if (fs.existsSync(OPENCLAW_MEMORY_FILE)) {
-      let memoryText = fs.readFileSync(OPENCLAW_MEMORY_FILE, 'utf8');
-      if (/当前默认模型应为\s*`[^`]+`/.test(memoryText)) {
-        memoryText = memoryText.replace(/当前默认模型应为\s*`[^`]+`/, `当前默认模型应为 \`${model}\``);
-      }
-      fs.writeFileSync(OPENCLAW_MEMORY_FILE, memoryText, 'utf8');
-    }
-  } catch {
-    // Ignore memory sync failures for dashboard-side model switches.
-  }
-
-  openclawState.model = model;
-  openclawState.lastUpdated = new Date().toISOString();
-  res.json({ ok: true, model });
+app.get('/api/dashboard/meta', (_req, res) => {
+  res.json(buildDashboardMeta());
 });
 
 app.post('/api/openclaw/repair', (req, res) => {
   const { action } = req.body || {};
-  if (action === 'restart') {
-    exec('openclaw gateway restart', () => {});
-  }
-
-  updateOpenClawState();
+  if (action === 'restart') exec('openclaw gateway restart', () => {});
   res.json({ ok: true, action: action || 'noop' });
 });
 
 wss.on('connection', socket => {
   const sendSnapshot = () => {
     if (socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: 'sysdata', payload: getSystemSnapshot() }));
+      socket.send(JSON.stringify({ type: 'sysdata', payload: getRealtimeSnapshot() }));
     }
   };
-
   sendSnapshot();
   const timer = setInterval(sendSnapshot, 1000);
   socket.on('close', () => clearInterval(timer));
@@ -387,7 +523,6 @@ wss.on('connection', socket => {
 startRefreshLoops();
 
 server.listen(PORT, () => {
-  updateOpenClawState();
   console.log(`EVA PANEL ONLINE: http://localhost:${PORT}`);
 });
 

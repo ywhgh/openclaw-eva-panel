@@ -1,17 +1,20 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NERV // MAGI SYSTEM // OPENCLAW PANEL</title>
+  <title>OPENCLAW EVA PANEL</title>
   <link rel="stylesheet" href="style.css">
 </head>
-<body>
-  <div class="scanlines"></div>
-  <div class="container">
+<body class="booting">
+  <div class="boot-overlay" id="boot-overlay">
+    <div class="boot-mark">NERV</div>
+    <div class="boot-line" data-i18n="boot.line">MAGI SYSTEM BOOTING // OPENCLAW LINK START</div>
+  </div>
 
-    <!-- HEADER -->
-    <header class="header">
+  <div class="scanlines"></div>
+  <div class="container" id="app-root">
+    <header class="header reveal reveal-1">
       <div class="header-left">
         <div class="nerv-logo">⬡ NERV</div>
         <div class="header-sub" data-i18n="nerv.subtitle">MAGI SYSTEM // OPENCLAW TACTICAL PANEL</div>
@@ -21,24 +24,23 @@
         <div id="date" class="date">----/--/--</div>
       </div>
       <div class="header-right">
-        <div class="alert-level"><span data-i18n="alert.level">警戒レベル</span> <span class="blink red" data-i18n="alert.alpha">ALPHA</span></div>
-        <div class="status-line" data-i18n="monitoring">全システム監視中 // MONITORING</div>
+        <div class="alert-level"><span data-i18n="alert.level">警戒等级</span> <span class="blink red" data-i18n="alert.alpha">ALPHA</span></div>
+        <div class="status-line" data-i18n="monitoring">全系统监视中 // MONITORING</div>
         <div class="controls-bar">
-          <label data-i18n="theme.label">テーマ</label>
+          <label data-i18n="theme.label">主题</label>
           <select id="theme-select" class="ctrl-select"></select>
-          <label data-i18n="lang.label">言語</label>
+          <label data-i18n="lang.label">语言</label>
           <select id="lang-select" class="ctrl-select">
-            <option value="ja-en">日本語/EN</option>
-            <option value="zh-en">中文/EN</option>
+            <option value="zh-en">中文 / EN</option>
+            <option value="ja-en">日本語 / EN</option>
           </select>
         </div>
       </div>
     </header>
 
-    <!-- ROW 1: CPU + MEMORY + NETWORK + DISK -->
-    <div class="row">
+    <div class="row reveal reveal-2">
       <div class="panel" id="cpu-panel">
-        <div class="panel-title" data-i18n="cpu.title">⬡ CPU // 中央処理装置</div>
+        <div class="panel-title" data-i18n="cpu.title">⬡ CPU // 中央处理器</div>
         <div class="big-value"><span id="cpu-load">--</span><span class="unit">%</span></div>
         <div class="label" data-i18n="cpu.label">PROCESSOR LOAD</div>
         <canvas id="cpu-chart" width="320" height="80"></canvas>
@@ -46,116 +48,119 @@
       </div>
 
       <div class="panel" id="mem-panel">
-        <div class="panel-title" data-i18n="mem.title">⬡ MEMORY // メモリ使用率</div>
+        <div class="panel-title" data-i18n="mem.title">⬡ MEMORY // 内存使用率</div>
         <div class="big-value"><span id="mem-percent">--</span><span class="unit">%</span></div>
         <div class="label" data-i18n="mem.label">MEMORY UTILIZATION</div>
         <div class="bar-container"><div class="bar" id="mem-bar"></div></div>
         <div class="mem-details">
-          <span><span data-i18n="mem.used">USED</span>: <span id="mem-used">--</span> GB</span>
-          <span><span data-i18n="mem.free">FREE</span>: <span id="mem-free">--</span> GB</span>
-          <span><span data-i18n="mem.total">TOTAL</span>: <span id="mem-total">--</span> GB</span>
+          <span><span data-i18n="mem.used">已用</span>: <span id="mem-used">--</span> GB</span>
+          <span><span data-i18n="mem.free">空闲</span>: <span id="mem-free">--</span> GB</span>
+          <span><span data-i18n="mem.total">总计</span>: <span id="mem-total">--</span> GB</span>
         </div>
         <canvas id="mem-chart" width="320" height="80"></canvas>
       </div>
 
       <div class="panel" id="net-panel">
-        <div class="panel-title" data-i18n="net.title">⬡ NETWORK // ネットワーク</div>
+        <div class="panel-title" data-i18n="net.title">⬡ NETWORK // 网络接口</div>
+        <div class="net-ip"><span data-i18n="net.iface">网卡</span>: <span id="net-iface" class="secondary">--</span></div>
         <div class="net-ip">IP: <span id="net-ip" class="secondary">--</span></div>
         <div class="net-stats">
-          <div>↓ <span data-i18n="net.rx">RX</span>: <span id="net-rx" class="secondary">-- KB/s</span></div>
-          <div>↑ <span data-i18n="net.tx">TX</span>: <span id="net-tx" class="primary">-- KB/s</span></div>
+          <div>↓ <span data-i18n="net.rx">下行</span>: <span id="net-rx" class="secondary">-- KB/s</span></div>
+          <div>↑ <span data-i18n="net.tx">上行</span>: <span id="net-tx" class="primary">-- KB/s</span></div>
         </div>
         <canvas id="net-chart" width="320" height="80"></canvas>
       </div>
 
       <div class="panel" id="disk-panel">
-        <div class="panel-title" data-i18n="disk.title">⬡ DISK // ストレージ</div>
+        <div class="panel-title" data-i18n="disk.title">⬡ DISK // 存储系统</div>
         <div class="big-value"><span id="disk-percent">--</span><span class="unit">%</span></div>
         <div class="bar-container"><div class="bar orange" id="disk-bar"></div></div>
         <div class="mem-details">
-          <span>USED: <span id="disk-used">--</span> GB</span>
-          <span>TOTAL: <span id="disk-total">--</span> GB</span>
+          <span><span data-i18n="disk.used">已用</span>: <span id="disk-used">--</span> GB</span>
+          <span><span data-i18n="disk.total">总计</span>: <span id="disk-total">--</span> GB</span>
         </div>
-        <div class="uptime-box"><span data-i18n="uptime">UPTIME</span>: <span id="uptime" class="secondary">--</span></div>
+        <div class="uptime-box"><span data-i18n="uptime">运行时间</span>: <span id="uptime" class="secondary">--</span></div>
       </div>
     </div>
 
-    <!-- ROW 2: OPENCLAW CORE -->
-    <div class="row">
-      <div class="panel wide" id="oc-panel">
-        <div class="panel-title" data-i18n="oc.title">⬡ OPENCLAW // インテリジェントコア</div>
+    <div class="row reveal reveal-3">
+      <div class="panel wide" id="oc-core-panel">
+        <div class="panel-title" data-i18n="oc.title">⬡ OPENCLAW // 智能核心</div>
         <div class="oc-grid">
-          <div class="oc-stat-block">
-            <div class="oc-label" data-i18n="oc.model">現在のモデル</div>
+          <div class="oc-stat-block emphasis">
+            <div class="oc-label" data-i18n="oc.currentRuntimeModel">当前运行模型</div>
             <div class="oc-value" id="oc-model">--</div>
+            <div class="subline" id="oc-model-alias">--</div>
           </div>
           <div class="oc-stat-block">
-            <div class="oc-label" data-i18n="oc.tokens.in">Token 入力</div>
-            <div class="oc-value secondary" id="oc-tokens-in">--</div>
+            <div class="oc-label" data-i18n="oc.defaultModel">默认模型</div>
+            <div class="oc-value secondary" id="oc-default-model">--</div>
           </div>
           <div class="oc-stat-block">
-            <div class="oc-label" data-i18n="oc.tokens.out">Token 出力</div>
-            <div class="oc-value primary" id="oc-tokens-out">--</div>
+            <div class="oc-label" data-i18n="oc.sessionCount">活跃会话</div>
+            <div class="oc-value primary" id="oc-session-count">--</div>
           </div>
           <div class="oc-stat-block">
-            <div class="oc-label" data-i18n="oc.api.health">API ヘルス</div>
-            <div class="oc-value" id="oc-gw-status">--</div>
+            <div class="oc-label" data-i18n="oc.installedModelCount">已装模型</div>
+            <div class="oc-value secondary" id="oc-installed-model-count">--</div>
           </div>
         </div>
-        <!-- Context bar -->
-        <div class="oc-context-row">
-          <span class="oc-label" data-i18n="oc.context">コンテキスト使用率</span>
-          <span class="oc-ctx-pct" id="oc-ctx-pct">--%</span>
-        </div>
-        <div class="bar-container"><div class="bar" id="oc-ctx-bar"></div></div>
-        <div id="oc-ctx-warn" class="oc-warn hidden"></div>
-        <!-- Model switch -->
-        <div class="oc-actions">
-          <span class="oc-label" data-i18n="oc.switch.model">モデル切替</span>
-          <select id="oc-model-select" class="ctrl-select"><option>loading...</option></select>
-          <button class="eva-btn" id="oc-model-btn">SET</button>
-          <button class="eva-btn warn" id="oc-repair-reconnect" data-i18n-btn="oc.repair.reconnect">RECONNECT</button>
-          <button class="eva-btn danger" id="oc-repair-restart" data-i18n-btn="oc.repair.restart">RESTART GW</button>
-        </div>
+
+        <div class="section-subtitle" data-i18n="oc.modelDistribution">模型用量分布</div>
+        <div id="oc-model-usage" class="usage-grid"></div>
       </div>
 
-      <div class="panel wide" id="oc-agents-panel">
-        <div class="panel-title" data-i18n="oc.agents">⬡ エージェント状態</div>
-        <div id="oc-agents-grid" class="oc-agents-grid">--</div>
+      <div class="panel wide" id="channel-panel">
+        <div class="panel-title" data-i18n="channels.title">⬡ COMM CHANNELS // 通讯工具状态</div>
+        <div id="channel-grid" class="operators-grid"></div>
       </div>
     </div>
 
-    <!-- ROW 3: OPERATORS + PROCESSES -->
-    <div class="row">
-      <div class="panel wide" id="operators-panel">
-        <div class="panel-title" data-i18n="operators.title">⬡ OPERATOR STATUS // オペレーター同期率</div>
-        <div class="operators-grid" id="operators-grid">loading...</div>
+    <div class="row reveal reveal-4">
+      <div class="panel wide" id="session-panel">
+        <div class="panel-title" data-i18n="sessions.title">⬡ SESSION STREAM // 实时会话信息</div>
+        <div id="session-grid" class="session-grid"></div>
       </div>
+      <div class="panel wide" id="models-panel">
+        <div class="panel-title" data-i18n="models.title">⬡ INSTALLED MODELS // 已安装模型</div>
+        <div id="installed-models-grid" class="model-list"></div>
+      </div>
+    </div>
+
+    <div class="row reveal reveal-5">
+      <div class="panel wide" id="memory-panel">
+        <div class="panel-title" data-i18n="memory.title">⬡ LONG MEMORY // 长记忆</div>
+        <div class="memory-layout">
+          <div>
+            <div class="section-subtitle" data-i18n="memory.long">长期记忆摘要</div>
+            <pre id="memory-long" class="memory-box">--</pre>
+          </div>
+          <div>
+            <div class="section-subtitle" data-i18n="memory.daily">最近记忆文件</div>
+            <div id="memory-daily-list" class="memory-daily-list"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row reveal reveal-6">
       <div class="panel wide" id="proc-panel">
-        <div class="panel-title" data-i18n="proc.title">⬡ TOP PROCESSES // プロセス監視</div>
+        <div class="panel-title" data-i18n="proc.title">⬡ TOP PROCESSES // 进程监视</div>
         <table class="proc-table">
           <thead><tr>
-            <th data-i18n="proc.name">NAME</th>
+            <th data-i18n="proc.name">名称</th>
             <th data-i18n="proc.pid">PID</th>
             <th data-i18n="proc.cpu">CPU%</th>
-            <th data-i18n="proc.mem">MEM(MB)</th>
+            <th data-i18n="proc.mem">内存(MB)</th>
           </tr></thead>
           <tbody id="proc-tbody"></tbody>
         </table>
       </div>
-    </div>
-
-    <!-- ROW 4: LOG -->
-    <div class="row">
-      <div class="panel full" id="log-panel">
-        <div class="panel-title">
-          <span data-i18n="log.title">⬡ SYSTEM LOG // システムログ</span> //
-          <span class="blink secondary" data-i18n="log.live">LIVE</span>
-        </div>
+      <div class="panel wide" id="log-panel">
+        <div class="panel-title"><span data-i18n="log.title">⬡ SYSTEM LOG // 系统日志</span> // <span class="blink secondary" data-i18n="log.live">实时</span></div>
         <div class="log-scroll" id="log-scroll"></div>
       </div>
     </div>
-
   </div>
 
   <script src="i18n.js"></script>

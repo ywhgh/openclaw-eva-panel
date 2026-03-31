@@ -6,18 +6,24 @@
 ![Node](https://img.shields.io/badge/node-%3E%3D18-green)
 ![License](https://img.shields.io/badge/license-MIT-black)
 
-OPENCLAW EVA PANEL is a local monitoring dashboard with an Evangelion-inspired control-room aesthetic. It is designed for a Windows machine running OpenClaw or related local tooling, and provides a single-screen overview of system load, process activity, network state, and OpenClaw session status.
+OPENCLAW EVA PANEL is a local monitoring dashboard with an Evangelion-inspired control-room aesthetic. It is designed for a Windows machine running OpenClaw or related local tooling, and provides a single-screen overview of system load, process activity, network state, and OpenClaw runtime information.
 
-## Features
+## Current Dashboard Capabilities
+
+The current version includes:
 
 - Realtime CPU load and per-core usage
-- Memory usage and capacity overview
-- Disk utilization panel
-- Top process list by CPU usage
-- Network interface selection with Windows fallback for real adapters
-- OpenClaw model / session / gateway summary panel
-- Operator status cards from configurable JSON
-- Theme switching and multilingual UI support
+- Memory, disk, network, uptime, and top-process monitoring
+- Current runtime model display (not just default model)
+- Installed model panel
+- Model usage distribution panel
+- Realtime session panel with current-session highlighting
+- Communication tool / channel status panel
+- Long-memory digest panel
+- Boot animation and NERV-style reveal transitions
+- Multilingual UI selector:
+  - `中文 / EN`
+  - `日本語 / EN`
 
 ## Tech Stack
 
@@ -96,30 +102,36 @@ openclaw-eva-panel/
 └─ LICENSE
 ```
 
-## Configuration
+## Configuration Notes
 
-### Operators
+### Runtime model vs default model
 
-Edit `config/operators.json`:
+The dashboard now separates:
 
-```json
-[
-  {
-    "id": 1,
-    "name": "AYANAMI REI",
-    "nameJp": "綾波レイ",
-    "role": "PILOT UNIT-00",
-    "status": "ACTIVE",
-    "sync": 99.2
-  }
-]
-```
+- **Current runtime model**: inferred from the most recent active main-session data
+- **Default model**: read from local OpenClaw configuration
 
-Supported `status` values:
+This avoids showing only the configured default when the actual running session is using another model.
 
-- `ACTIVE`
-- `STANDBY`
-- `ERROR`
+### Memory panel
+
+The long-memory area is displayed as a digest split into:
+
+- Preferences
+- Recent context
+- Project state
+
+Recent daily memory files are shown separately in the side column.
+
+### Channel status panel
+
+The communication section reflects enabled local integrations/plugins such as:
+
+- Feishu
+- QQBot
+- WeCom
+- OpenClaw Weixin
+- related plugin entries when available
 
 ### Port
 
@@ -130,12 +142,6 @@ Override it with:
 ```cmd
 set PORT=3001 && npm start
 ```
-
-## Notes
-
-- This project is intended for local use.
-- Network statistics on Windows try to prefer real physical adapters over virtual/TUN/VPN interfaces.
-- The OpenClaw panel reads local workspace context from `.openclaw/workspace` when available.
 
 ## Logs
 
@@ -151,6 +157,13 @@ Realtime tail:
 ```cmd
 scripts\logs.cmd
 ```
+
+## Notes
+
+- This project is intended for local use.
+- Network statistics on Windows try to prefer real physical adapters over virtual/TUN/VPN interfaces.
+- The dashboard reads local OpenClaw workspace/config/session files when available.
+- If the dashboard shows stale data after heavy local testing, restarting the panel process is recommended.
 
 ## License
 
