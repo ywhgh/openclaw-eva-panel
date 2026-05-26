@@ -1,4 +1,6 @@
 node_modules/
+dist/
+public/assets/private/
 server.log
 server.err.log
 run/

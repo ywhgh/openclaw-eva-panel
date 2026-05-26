@@ -9,6 +9,8 @@ const { exec, execFile } = require('child_process');
 const PORT = Number(process.env.PORT || 1312);
 const ROOT_DIR = __dirname;
 const PUBLIC_DIR = path.join(ROOT_DIR, 'public');
+const DIST_DIR = path.join(ROOT_DIR, 'dist');
+const STATIC_DIR = fs.existsSync(path.join(DIST_DIR, 'index.html')) ? DIST_DIR : PUBLIC_DIR;
 const CONFIG_DIR = path.join(ROOT_DIR, 'config');
 const OPERATORS_FILE = path.join(CONFIG_DIR, 'operators.json');
 const DISK_ROOT = path.parse(ROOT_DIR).root || ROOT_DIR;
@@ -27,7 +29,7 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 app.use(express.json());
-app.use(express.static(PUBLIC_DIR));
+app.use(express.static(STATIC_DIR));
 
 const systemCache = {
   cpu: { load: '0.0', cores: [] },
@@ -655,6 +657,21 @@ app.post('/api/openclaw/repair', (req, res) => {
   const { action } = req.body || {};
   if (action === 'restart') exec('openclaw gateway restart', () => {});
   res.json({ ok: true, action: action || 'noop' });
+});
+
+app.get('*', (req, res, next) => {
+  if (req.method !== 'GET' || req.path.startsWith('/api')) {
+    next();
+    return;
+  }
+
+  const indexFile = path.join(STATIC_DIR, 'index.html');
+  if (fs.existsSync(indexFile)) {
+    res.sendFile(indexFile);
+    return;
+  }
+
+  next();
 });
 
 wss.on('connection', socket => {

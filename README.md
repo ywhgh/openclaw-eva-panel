@@ -1,6 +1,6 @@
 # OPENCLAW EVA PANEL
 
-> A local NERV / MAGI-style realtime dashboard for host monitoring and OpenClaw status.
+> A Vue 3 + TypeScript + Vite NERV / MAGI-style realtime dashboard for host monitoring and OpenClaw status.
 
 ![Platform](https://img.shields.io/badge/platform-Windows-blue)
 ![Node](https://img.shields.io/badge/node-%3E%3D18-green)
@@ -30,8 +30,10 @@ The current version includes:
 - Node.js
 - Express
 - WebSocket (`ws`)
-- `systeminformation`
-- Static frontend (HTML / CSS / JS)
+- Vue 3 Composition API
+- TypeScript
+- Vite
+- Tailwind CSS
 
 ## Requirements
 
@@ -52,10 +54,34 @@ npm install
 npm start
 ```
 
+`npm start` builds the Vue frontend first, then starts the Express/WebSocket backend.
+
 Then open:
 
 ```text
 http://localhost:1312
+```
+
+### Frontend development
+
+Run the backend in one terminal:
+
+```bash
+npm run serve
+```
+
+Run Vite in another terminal:
+
+```bash
+npm run dev
+```
+
+Vite runs at `http://127.0.0.1:5173` and proxies API calls to the backend on `1312`.
+
+### Production build only
+
+```bash
+npm run build
 ```
 
 ### Stable script-based workflow
@@ -85,11 +111,15 @@ openclaw-eva-panel/
 ├─ config/
 │  └─ operators.json
 ├─ public/
-│  ├─ index.html
-│  ├─ app.js
-│  ├─ style.css
-│  ├─ i18n.js
-│  └─ themes.js
+│  └─ assets/                # optional static assets
+├─ legacy-public/            # archived pre-Vue frontend
+├─ src/
+│  ├─ components/
+│  ├─ composables/
+│  ├─ styles/
+│  ├─ types/
+│  ├─ App.vue
+│  └─ main.ts
 ├─ scripts/
 │  ├─ start.cmd
 │  ├─ stop.cmd
@@ -97,6 +127,9 @@ openclaw-eva-panel/
 │  ├─ status.cmd
 │  └─ logs.cmd
 ├─ server.js
+├─ vite.config.ts
+├─ tsconfig.json
+├─ tailwind.config.js
 ├─ package.json
 ├─ README.md
 └─ LICENSE
@@ -115,7 +148,7 @@ This avoids showing only the configured default when the actual running session 
 
 ### Memory panel
 
-The long-memory area is displayed as a digest split into:
+The long-memory area is moved into the secondary NERV admin window and displayed as a digest split into:
 
 - Preferences
 - Recent context

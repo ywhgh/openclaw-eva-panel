@@ -15,4 +15,10 @@ if /I "%STATE%"=="RUNNING" (
   exit /b 0
 )
 
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Set-Location '%ROOT%'; npm run build"
+if errorlevel 1 (
+  echo Failed to build EVA PANEL.
+  exit /b 1
+)
+
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$root='%ROOT%'; $log='%LOG_FILE%'; $err='%ERR_FILE%'; $pidFile='%PID_FILE%'; $proc = Start-Process -FilePath node -ArgumentList 'server.js' -WorkingDirectory $root -RedirectStandardOutput $log -RedirectStandardError $err -PassThru; $proc.Id | Set-Content -Path $pidFile -Encoding ascii; Start-Sleep -Seconds 2; if (Get-Process -Id $proc.Id -ErrorAction SilentlyContinue) { Write-Host ('EVA PANEL started. PID=' + $proc.Id + ' URL=http://localhost:1312') } else { Write-Host 'Failed to start EVA PANEL.'; exit 1 }"

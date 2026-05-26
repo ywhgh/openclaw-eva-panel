@@ -1,11 +1,13 @@
 {
   "name": "openclaw-eva-panel",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "OpenClaw NERV-style Geek Dashboard",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js",
+    "dev": "vite --host 127.0.0.1 --port 5173",
+    "build": "vue-tsc --noEmit && vite build",
+    "serve": "node server.js",
+    "start": "npm run build && node server.js",
     "panel:start": "scripts\\start.cmd",
     "panel:stop": "scripts\\stop.cmd",
     "panel:restart": "scripts\\restart.cmd",
@@ -14,6 +16,16 @@
   },
   "dependencies": {
     "express": "^4.18.2",
+    "vue": "^3.5.34",
     "ws": "^8.20.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.7",
+    "autoprefixer": "^10.5.0",
+    "postcss": "^8.5.15",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.14",
+    "vue-tsc": "^3.3.2"
   }
 }
