@@ -163,22 +163,104 @@ const LANGS = {
   }
 };
 
+const LANG_OPTIONS = {
+  'zh-en': '中文 / EN',
+  'ja-en': '日本語 / EN',
+  'en-zh': 'EN / 中文'
+};
 let currentLang = localStorage.getItem('eva-lang') || 'zh-en';
+if (!LANGS[currentLang]) currentLang = 'zh-en';
 
 function t(key) {
   return (LANGS[currentLang] && LANGS[currentLang][key]) || key;
 }
 
 function setLang(lang) {
+  if (!LANGS[lang]) return;
   currentLang = lang;
   localStorage.setItem('eva-lang', lang);
   applyI18n();
+  syncLanguageSelector();
 }
 
 function applyI18n() {
   document.querySelectorAll('[data-i18n]').forEach(el => {
     el.textContent = t(el.getAttribute('data-i18n'));
   });
-  const sel = document.getElementById('lang-select');
-  if (sel) sel.value = currentLang;
+  syncLanguageSelector();
+}
+
+function closeLanguageSelector() {
+  const root = document.getElementById('lang-select');
+  if (!root) return;
+  root.classList.remove('open');
+  root.querySelector('[data-dropdown-trigger]')?.setAttribute('aria-expanded', 'false');
+}
+
+function closeOtherLanguageDropdowns(activeRoot) {
+  document.querySelectorAll('[data-control-dropdown].open').forEach(dropdown => {
+    if (dropdown !== activeRoot) {
+      dropdown.classList.remove('open');
+      dropdown.querySelector('[data-dropdown-trigger]')?.setAttribute('aria-expanded', 'false');
+    }
+  });
+}
+
+function syncLanguageSelector() {
+  const root = document.getElementById('lang-select');
+  if (!root) return;
+
+  const label = root.querySelector('[data-dropdown-label]');
+  if (label) label.textContent = LANG_OPTIONS[currentLang] || currentLang;
+
+  root.querySelectorAll('[data-lang-value]').forEach(option => {
+    const active = option.dataset.langValue === currentLang;
+    option.classList.toggle('active', active);
+    option.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+}
+
+function buildLanguageSelector() {
+  const root = document.getElementById('lang-select');
+  if (!root) return;
+
+  root.innerHTML = `
+    <button class="ctrl-dropdown-trigger" type="button" data-dropdown-trigger aria-haspopup="listbox" aria-expanded="false">
+      <span data-dropdown-label>${LANG_OPTIONS[currentLang] || currentLang}</span>
+      <span class="ctrl-chevron" aria-hidden="true">▼</span>
+    </button>
+    <div class="ctrl-dropdown-menu" role="listbox">
+      ${Object.entries(LANG_OPTIONS).map(([value, label]) => `
+        <button class="ctrl-dropdown-option" type="button" role="option" data-lang-value="${value}">
+          <span>${label}</span>
+        </button>
+      `).join('')}
+    </div>
+  `;
+
+  const trigger = root.querySelector('[data-dropdown-trigger]');
+  trigger.addEventListener('click', event => {
+    event.stopPropagation();
+    const nextOpen = !root.classList.contains('open');
+    closeOtherLanguageDropdowns(root);
+    root.classList.toggle('open', nextOpen);
+    trigger.setAttribute('aria-expanded', nextOpen ? 'true' : 'false');
+  });
+
+  root.querySelectorAll('[data-lang-value]').forEach(option => {
+    option.addEventListener('click', event => {
+      event.stopPropagation();
+      setLang(option.dataset.langValue);
+      closeLanguageSelector();
+    });
+  });
+
+  document.addEventListener('click', event => {
+    if (!root.contains(event.target)) closeLanguageSelector();
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') closeLanguageSelector();
+  });
+
+  syncLanguageSelector();
 }

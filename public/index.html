@@ -16,7 +16,16 @@
   <div class="container" id="app-root">
     <header class="header reveal reveal-1">
       <div class="header-left">
-        <div class="nerv-logo">⬡ NERV</div>
+        <div class="nerv-brand">
+          <button id="nerv-trigger" class="nerv-trigger" type="button" aria-label="Open NERV admin window" aria-haspopup="dialog" aria-controls="nerv-admin-modal" aria-expanded="false">
+            <svg viewBox="0 0 100 100" aria-hidden="true">
+              <polygon class="hex-outer" points="50 5 89 27.5 89 72.5 50 95 11 72.5 11 27.5"></polygon>
+              <polygon class="hex-inner" points="50 18 77 34 77 66 50 82 23 66 23 34"></polygon>
+            </svg>
+            <span class="energy-sweep"></span>
+          </button>
+          <div class="nerv-logo">NERV</div>
+        </div>
         <div class="header-sub" data-i18n="nerv.subtitle">MAGI SYSTEM // OPENCLAW TACTICAL PANEL</div>
       </div>
       <div class="header-center">
@@ -28,12 +37,9 @@
         <div class="status-line" data-i18n="monitoring">全系统监视中 // MONITORING</div>
         <div class="controls-bar">
           <label data-i18n="theme.label">主题</label>
-          <select id="theme-select" class="ctrl-select"></select>
+          <div id="theme-select" class="ctrl-dropdown" data-control-dropdown></div>
           <label data-i18n="lang.label">语言</label>
-          <select id="lang-select" class="ctrl-select">
-            <option value="zh-en">中文 / EN</option>
-            <option value="ja-en">日本語 / EN</option>
-          </select>
+          <div id="lang-select" class="ctrl-dropdown ctrl-dropdown-narrow" data-control-dropdown></div>
         </div>
       </div>
     </header>
@@ -128,22 +134,6 @@
     </div>
 
     <div class="row reveal reveal-5">
-      <div class="panel wide" id="memory-panel">
-        <div class="panel-title" data-i18n="memory.title">⬡ LONG MEMORY // 长记忆</div>
-        <div class="memory-layout">
-          <div>
-            <div class="section-subtitle" data-i18n="memory.long">长期记忆摘要</div>
-            <pre id="memory-long" class="memory-box">--</pre>
-          </div>
-          <div>
-            <div class="section-subtitle" data-i18n="memory.daily">最近记忆文件</div>
-            <div id="memory-daily-list" class="memory-daily-list"></div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="row reveal reveal-6">
       <div class="panel wide" id="proc-panel">
         <div class="panel-title" data-i18n="proc.title">⬡ TOP PROCESSES // 进程监视</div>
         <table class="proc-table">
@@ -161,6 +151,92 @@
         <div class="log-scroll" id="log-scroll"></div>
       </div>
     </div>
+  </div>
+
+  <div id="nerv-admin-modal" class="admin-modal hidden" aria-hidden="true">
+    <div class="admin-backdrop" data-admin-close></div>
+    <section class="admin-window animate-crt-open" role="dialog" aria-modal="true" aria-labelledby="admin-window-title">
+      <span class="corner corner-tl"></span>
+      <span class="corner corner-tr"></span>
+      <span class="corner corner-bl"></span>
+      <span class="corner corner-br"></span>
+
+      <aside class="admin-nav">
+        <div class="admin-eyebrow">NERV ADMIN</div>
+        <h2 id="admin-window-title">CONTROL WINDOW</h2>
+        <button class="admin-nav-item" type="button" data-admin-panel="core">
+          <span>CORE</span>
+          <strong>System Core</strong>
+          <em>核心状态与总览</em>
+        </button>
+        <button class="admin-nav-item" type="button" data-admin-panel="route">
+          <span>ROUTE</span>
+          <strong>Signal Route</strong>
+          <em>模型与通道入口</em>
+        </button>
+        <button class="admin-nav-item active" type="button" data-admin-panel="memory">
+          <span>MEMORY</span>
+          <strong>Long Memory</strong>
+          <em>长期记忆接口</em>
+        </button>
+        <button class="admin-nav-item" type="button" data-admin-panel="ops">
+          <span>OPS</span>
+          <strong>Maintenance</strong>
+          <em>维护与诊断</em>
+        </button>
+      </aside>
+
+      <main class="admin-detail">
+        <div class="admin-detail-head">
+          <div>
+            <div class="admin-eyebrow">MASTER DETAIL</div>
+            <h3 id="admin-detail-title">Long Memory</h3>
+          </div>
+          <button class="admin-close" type="button" data-admin-close>CLOSE</button>
+        </div>
+
+        <div class="admin-panel" data-admin-content="core">
+          <div class="admin-section-title">SYSTEM CORE</div>
+          <ul class="admin-list">
+            <li><span>01</span>收纳主界面低频控制入口，避免监控区域过载。</li>
+            <li><span>02</span>预留 OpenClaw 运行时、模型状态、通道状态的统一控制面。</li>
+            <li><span>03</span>后续可接入开关、权限、快捷维护等模块。</li>
+          </ul>
+        </div>
+
+        <div class="admin-panel" data-admin-content="route">
+          <div class="admin-section-title">SIGNAL ROUTE</div>
+          <ul class="admin-list">
+            <li><span>01</span>预留模型供应商路由与默认模型切换。</li>
+            <li><span>02</span>预留 Feishu、QQBot、WeCom、Weixin 等通道管理。</li>
+            <li><span>03</span>后续可接入请求链路观测与熔断策略。</li>
+          </ul>
+        </div>
+
+        <div class="admin-panel active long-memory-panel" data-admin-content="memory">
+          <div class="long-memory-view">
+            <section class="memory-shell memory-shell-primary">
+              <div class="memory-shell-label">SYSTEM LONG MEMORY // 长期记忆矩阵</div>
+              <div id="memory-long" class="memory-digest-grid">--</div>
+            </section>
+
+            <section class="memory-shell memory-shell-files">
+              <div class="memory-shell-label">RECENT MEMORY FILES // 最近记忆文件</div>
+              <div id="memory-daily-list" class="memory-daily-list"></div>
+            </section>
+          </div>
+        </div>
+
+        <div class="admin-panel" data-admin-content="ops">
+          <div class="admin-section-title">MAINTENANCE</div>
+          <ul class="admin-list">
+            <li><span>01</span>预留网关重启、日志导出、健康检查入口。</li>
+            <li><span>02</span>预留探测任务状态、异常记录和恢复动作。</li>
+            <li><span>03</span>后续可接入安全模式和配置审计。</li>
+          </ul>
+        </div>
+      </main>
+    </section>
   </div>
 
   <script src="i18n.js"></script>

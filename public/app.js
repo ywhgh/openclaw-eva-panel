@@ -15,7 +15,7 @@ function drawChart(ctx, canvas, data, color, max) {
   const W = canvas.width;
   const H = canvas.height;
   ctx.clearRect(0, 0, W, H);
-  ctx.strokeStyle = 'rgba(255,102,0,0.08)';
+  ctx.strokeStyle = getThemeRgba('primary', 0.08, 'rgba(255,102,0,0.08)');
   ctx.lineWidth = 1;
   for (let i = 0; i < 4; i += 1) {
     const y = H * i / 4;
@@ -44,6 +44,10 @@ function getPrimaryColor() {
 }
 function getSecondaryColor() {
   return getComputedStyle(document.documentElement).getPropertyValue('--secondary').trim() || '#00ff41';
+}
+function getThemeRgba(name, alpha, fallback) {
+  const value = getComputedStyle(document.documentElement).getPropertyValue(`--${name}-rgb`).trim();
+  return value ? `rgba(${value},${alpha})` : fallback;
 }
 
 function updateClock() {
@@ -152,30 +156,37 @@ function summarizeMemoryText(text) {
 
 function renderDigestList(title, items) {
   return `
-    <div class="digest-card">
-      <div class="section-subtitle">${escapeHtml(title)}</div>
-      <ul class="digest-list">
+    <section class="memory-digest-card">
+      <div class="memory-digest-title">${escapeHtml(title)}</div>
+      <ul class="memory-digest-list">
         ${(items && items.length ? items : ['--']).map(item => `<li>${escapeHtml(item)}</li>`).join('')}
       </ul>
-    </div>
+    </section>
   `;
 }
 
 function updateMemory(memory) {
   const digest = memory?.digest || {};
-  document.getElementById('memory-long').innerHTML = [
+  const longMemory = document.getElementById('memory-long');
+  const daily = document.getElementById('memory-daily-list');
+  if (!longMemory || !daily) return;
+
+  longMemory.innerHTML = [
     renderDigestList('Preferences / 偏好', digest.preferences || []),
     renderDigestList('Recent Context / 最近上下文', digest.recentContext || []),
     renderDigestList('Project State / 项目状态', digest.projectState || [])
   ].join('');
 
-  const daily = document.getElementById('memory-daily-list');
-  daily.innerHTML = (memory?.recentDailyFiles || []).map(item => `
-    <div class="memory-box small">
-      <div class="memory-meta">${escapeHtml(item.name)} · ${new Date(item.updatedAt).toLocaleString()}</div>
+  const files = memory?.recentDailyFiles || [];
+  daily.innerHTML = files.length ? files.map(item => `
+    <article class="memory-file-card">
+      <div class="memory-file-head">
+        <span>${escapeHtml(item.name)}</span>
+        <time>${new Date(item.updatedAt).toLocaleString()}</time>
+      </div>
       <pre>${escapeHtml(summarizeMemoryText(item.preview || '--'))}</pre>
-    </div>
-  `).join('');
+    </article>
+  `).join('') : '<div class="memory-empty">NO RECENT MEMORY FILES // 暂无最近记忆文件</div>';
 }
 
 function updateModelUsage(items = []) {
@@ -301,13 +312,65 @@ function startBootAnimation() {
   }, 1200);
 }
 
+function initAdminModal() {
+  const trigger = document.getElementById('nerv-trigger');
+  const modal = document.getElementById('nerv-admin-modal');
+  const title = document.getElementById('admin-detail-title');
+  if (!trigger || !modal || !title) return;
+
+  const windowEl = modal.querySelector('.admin-window');
+  const navItems = Array.from(modal.querySelectorAll('[data-admin-panel]'));
+  const panels = Array.from(modal.querySelectorAll('[data-admin-content]'));
+  const closeTargets = Array.from(modal.querySelectorAll('[data-admin-close]'));
+
+  const panelTitles = {
+    core: 'System Core',
+    route: 'Signal Route',
+    memory: 'Long Memory',
+    ops: 'Maintenance'
+  };
+
+  function openModal() {
+    modal.classList.remove('hidden');
+    if (windowEl) {
+      windowEl.classList.remove('animate-crt-open');
+      void windowEl.offsetWidth;
+      windowEl.classList.add('animate-crt-open');
+    }
+    selectPanel('memory');
+    modal.setAttribute('aria-hidden', 'false');
+    trigger.setAttribute('aria-expanded', 'true');
+    document.body.style.overflow = 'hidden';
+    addLog('NERV ADMIN WINDOW OPENED', 'ok');
+  }
+
+  function closeModal() {
+    modal.classList.add('hidden');
+    modal.setAttribute('aria-hidden', 'true');
+    trigger.setAttribute('aria-expanded', 'false');
+    document.body.style.overflow = '';
+  }
+
+  function selectPanel(panelId) {
+    navItems.forEach(item => item.classList.toggle('active', item.dataset.adminPanel === panelId));
+    panels.forEach(panel => panel.classList.toggle('active', panel.dataset.adminContent === panelId));
+    title.textContent = panelTitles[panelId] || 'System Core';
+  }
+
+  trigger.addEventListener('click', openModal);
+  closeTargets.forEach(target => target.addEventListener('click', closeModal));
+  navItems.forEach(item => item.addEventListener('click', () => selectPanel(item.dataset.adminPanel)));
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && !modal.classList.contains('hidden')) closeModal();
+  });
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   buildThemeSelector();
   applyTheme(currentTheme);
-  const langSel = document.getElementById('lang-select');
-  langSel.value = currentLang;
-  langSel.addEventListener('change', e => setLang(e.target.value));
+  buildLanguageSelector();
   applyI18n();
+  initAdminModal();
   startBootAnimation();
   await loadInitialMeta();
   connect();
