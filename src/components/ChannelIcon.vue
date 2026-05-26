@@ -4,12 +4,12 @@ defineProps<{
 }>();
 
 const map: Record<string, string> = {
-  feishu: 'F',
-  qqbot: 'Q',
-  wecom: 'W',
-  'openclaw-weixin': 'WX',
-  'openclaw-qqbot': 'OQ',
-  'wecom-openclaw-plugin': 'WP',
+  feishu: '📘',
+  qqbot: '🐧',
+  wecom: '💼',
+  'openclaw-weixin': '💬',
+  'openclaw-qqbot': '🛰️',
+  'wecom-openclaw-plugin': '🧩',
 };
 </script>
 

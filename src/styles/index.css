@@ -287,8 +287,15 @@ canvas { display: block; margin: 8px 0 4px; border: 1px solid var(--dim-primary)
 .op-status.ERROR { color: var(--danger); border: 1px solid var(--danger); }
 .operator-card.status-ACTIVE, .session-card { border-color: var(--secondary); box-shadow: 0 0 6px rgba(var(--secondary-rgb), .12); }
 .operator-card.status-ERROR { border-color: var(--danger); }
-.channel-top { display: flex; gap: 10px; align-items: center; }
-.channel-icon { font-size: 1.5rem; width: 34px; text-align: center; }
+.channel-top { display: flex; gap: 16px; align-items: flex-start; }
+.channel-icon {
+  width: 58px;
+  min-width: 58px;
+  font-size: 2.35rem;
+  line-height: 1;
+  text-align: center;
+  filter: drop-shadow(0 0 8px rgba(var(--primary-rgb), .38));
+}
 .session-header { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
 .session-badges { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
 .session-card.current { border-color: var(--primary); box-shadow: 0 0 10px rgba(var(--primary-rgb), .2), inset 0 0 10px rgba(var(--primary-rgb), .08); }

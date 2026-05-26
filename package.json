@@ -1,6 +1,6 @@
 {
   "name": "openclaw-eva-panel",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "OpenClaw NERV-style Geek Dashboard",
   "main": "server.js",
   "scripts": {
