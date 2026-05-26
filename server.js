@@ -1,20 +1,19 @@
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
-const si = require('systeminformation');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
-const { exec } = require('child_process');
-const { promisify } = require('util');
+const { exec, execFile } = require('child_process');
 
-const execAsync = promisify(exec);
-
-const PORT = Number(process.env.PORT || 3000);
+const PORT = Number(process.env.PORT || 1312);
 const ROOT_DIR = __dirname;
 const PUBLIC_DIR = path.join(ROOT_DIR, 'public');
 const CONFIG_DIR = path.join(ROOT_DIR, 'config');
 const OPERATORS_FILE = path.join(CONFIG_DIR, 'operators.json');
+const DISK_ROOT = path.parse(ROOT_DIR).root || ROOT_DIR;
+const CPU_COUNT = Math.max(1, os.cpus().length);
+const DASHBOARD_META_TTL_MS = 5000;
 
 const OPENCLAW_DIR = path.join(os.homedir(), '.openclaw');
 const OPENCLAW_CONFIG_FILE = path.join(OPENCLAW_DIR, 'openclaw.json');
@@ -41,8 +40,10 @@ const systemCache = {
 };
 
 let lastNetworkStats = null;
-let lastNetworkAt = Date.now();
-let lastWindowsNetworkSample = null;
+let lastCpuSample = null;
+let lastProcessSample = null;
+let dashboardMetaCache = { at: 0, value: null };
+const refreshLocks = new Set();
 
 function safeReadText(filePath, fallback = '') {
   try {
@@ -60,11 +61,75 @@ function safeReadJson(filePath, fallback) {
   }
 }
 
-function withTimeout(promise, fallback, ms = 5000) {
-  return Promise.race([
-    Promise.resolve(promise).catch(() => fallback),
-    new Promise(resolve => setTimeout(() => resolve(fallback), ms)),
-  ]);
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function parseInteger(value) {
+  const normalized = String(value || '').replace(/[,\s]/g, '');
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function runCommand(file, args, options = {}) {
+  const timeoutMs = options.timeoutMs || 5000;
+  const maxBuffer = options.maxBuffer || 1024 * 1024;
+
+  return new Promise((resolve, reject) => {
+    let timedOut = false;
+    const child = execFile(file, args, {
+      windowsHide: true,
+      encoding: 'utf8',
+      maxBuffer,
+    }, (error, stdout, stderr) => {
+      clearTimeout(timer);
+      if (timedOut) {
+        reject(new Error(`${file} timed out after ${timeoutMs}ms`));
+        return;
+      }
+      if (error) {
+        const detail = String(stderr || '').trim();
+        reject(new Error(`${file} failed: ${detail || error.message}`));
+        return;
+      }
+      resolve(stdout || '');
+    });
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      if (process.platform === 'win32' && child.pid) {
+        execFile('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true }, () => {});
+      } else {
+        child.kill('SIGKILL');
+      }
+    }, timeoutMs);
+  });
+}
+
+function parseCsvLine(line) {
+  const result = [];
+  let value = '';
+  let quoted = false;
+
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (quoted && line[i + 1] === '"') {
+        value += '"';
+        i += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (ch === ',' && !quoted) {
+      result.push(value);
+      value = '';
+    } else {
+      value += ch;
+    }
+  }
+
+  result.push(value);
+  return result.map(item => item.trim());
 }
 
 function readOpenClawConfig() {
@@ -114,7 +179,16 @@ function pickCurrentRuntimeModel() {
 
 function safeReadTail(filePath, lineCount = 20) {
   try {
-    const text = safeReadText(filePath, '');
+    const stat = fs.statSync(filePath);
+    const readSize = Math.min(stat.size, 256 * 1024);
+    const buffer = Buffer.alloc(readSize);
+    const fd = fs.openSync(filePath, 'r');
+    try {
+      fs.readSync(fd, buffer, 0, readSize, Math.max(0, stat.size - readSize));
+    } finally {
+      fs.closeSync(fd);
+    }
+    const text = buffer.toString('utf8').replace(/^\uFEFF/, '');
     return text.split(/\r?\n/).filter(Boolean).slice(-lineCount);
   } catch {
     return [];
@@ -314,133 +388,207 @@ function buildDashboardMeta() {
   };
 }
 
+function getDashboardMeta() {
+  const now = Date.now();
+  if (dashboardMetaCache.value && now - dashboardMetaCache.at < DASHBOARD_META_TTL_MS) {
+    return dashboardMetaCache.value;
+  }
+
+  const value = buildDashboardMeta();
+  dashboardMetaCache = { at: now, value };
+  return value;
+}
+
+function readCpuSample() {
+  return os.cpus().map(cpu => {
+    const times = cpu.times || {};
+    const idle = Number(times.idle || 0);
+    const total = Object.values(times).reduce((sum, value) => sum + Number(value || 0), 0);
+    return { idle, total };
+  });
+}
+
 async function refreshCpu() {
-  const currentLoad = await withTimeout(si.currentLoad(), { currentLoad: 0, cpus: [] }, 2000);
+  const current = readCpuSample();
+  if (!lastCpuSample || lastCpuSample.length !== current.length) {
+    lastCpuSample = current;
+    systemCache.cpu = {
+      load: '0.0',
+      cores: current.map(() => '0.0'),
+    };
+    return;
+  }
+
+  let totalDelta = 0;
+  let idleDelta = 0;
+  const cores = current.map((sample, index) => {
+    const previous = lastCpuSample[index] || sample;
+    const total = Math.max(0, sample.total - previous.total);
+    const idle = Math.max(0, sample.idle - previous.idle);
+    totalDelta += total;
+    idleDelta += idle;
+    return total > 0 ? clamp(((total - idle) / total) * 100, 0, 100).toFixed(1) : '0.0';
+  });
+
+  lastCpuSample = current;
   systemCache.cpu = {
-    load: Number(currentLoad.currentLoad || 0).toFixed(1),
-    cores: Array.isArray(currentLoad.cpus) ? currentLoad.cpus.map(cpu => Number(cpu.load || 0).toFixed(1)) : [],
+    load: totalDelta > 0 ? clamp(((totalDelta - idleDelta) / totalDelta) * 100, 0, 100).toFixed(1) : '0.0',
+    cores,
   };
 }
 
 async function refreshMemory() {
-  const mem = await withTimeout(si.mem(), { total: 0, used: 0, free: 0 }, 3000);
+  const total = os.totalmem();
+  const free = os.freemem();
+  const used = Math.max(0, total - free);
   systemCache.memory = {
-    total: mem.total || 0,
-    used: mem.used || 0,
-    free: mem.free || 0,
-    percent: mem.total ? ((mem.used / mem.total) * 100).toFixed(1) : '0.0',
+    total,
+    used,
+    free,
+    percent: total ? ((used / total) * 100).toFixed(1) : '0.0',
   };
 }
 
 async function refreshDisk() {
-  const fsSize = await withTimeout(si.fsSize(), [], 3000);
-  const preferred = fsSize.find(item => String(item.mount || '').toUpperCase().startsWith('C:')) || fsSize[0] || {};
+  const stat = fs.statfsSync(DISK_ROOT);
+  const blockSize = Number(stat.bsize || 0);
+  const total = Number(stat.blocks || 0) * blockSize;
+  const free = Number(stat.bfree || 0) * blockSize;
+  const used = Math.max(0, total - free);
   systemCache.disk = {
-    total: preferred.size || 0,
-    used: preferred.used || 0,
-    percent: typeof preferred.use === 'number' ? preferred.use.toFixed(1) : '0.0',
+    total,
+    used,
+    percent: total ? ((used / total) * 100).toFixed(1) : '0.0',
   };
 }
 
+function parseWmicProcesses(output) {
+  const lines = String(output || '')
+    .replace(/^\uFEFF/, '')
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean);
+  const headerIndex = lines.findIndex(line => /^Node,/i.test(line));
+  if (headerIndex === -1) throw new Error('wmic process output did not include a CSV header');
+
+  const headers = parseCsvLine(lines[headerIndex]).map(item => item.toLowerCase());
+  const fieldIndex = name => headers.indexOf(name.toLowerCase());
+  const idxKernel = fieldIndex('KernelModeTime');
+  const idxName = fieldIndex('Name');
+  const idxPid = fieldIndex('ProcessId');
+  const idxUser = fieldIndex('UserModeTime');
+  const idxWorkingSet = fieldIndex('WorkingSetSize');
+  if ([idxKernel, idxName, idxPid, idxUser, idxWorkingSet].some(index => index < 0)) {
+    throw new Error('wmic process output is missing required fields');
+  }
+
+  return lines.slice(headerIndex + 1).map(line => {
+    const cols = parseCsvLine(line);
+    const pid = parseInteger(cols[idxPid]);
+    const name = cols[idxName] || `pid-${pid}`;
+    return {
+      pid,
+      name,
+      cpuTime: parseInteger(cols[idxKernel]) + parseInteger(cols[idxUser]),
+      memory: parseInteger(cols[idxWorkingSet]),
+    };
+  }).filter(item => item.pid > 0 && item.name && Number.isFinite(item.cpuTime));
+}
+
 async function refreshProcesses() {
-  const processes = await withTimeout(si.processes(), { list: [] }, 3500);
-  systemCache.processes = (processes.list || [])
-    .sort((a, b) => (b.cpu || 0) - (a.cpu || 0))
-    .slice(0, 10)
-    .map(item => ({
+  const output = await runCommand('cmd.exe', [
+    '/d',
+    '/s',
+    '/c',
+    'chcp 65001 > nul & wmic path Win32_Process get ProcessId,Name,WorkingSetSize,KernelModeTime,UserModeTime /format:csv',
+  ], { timeoutMs: 30000, maxBuffer: 2 * 1024 * 1024 });
+  const now = Date.now();
+  const processes = parseWmicProcesses(output);
+  const previous = lastProcessSample;
+  const elapsedMs = previous ? Math.max(1, now - previous.at) : 0;
+  const currentByPid = new Map(processes.map(item => [item.pid, item]));
+
+  systemCache.processes = processes.map(item => {
+    const old = previous?.byPid.get(item.pid);
+    const cpu = old && elapsedMs
+      ? clamp(((item.cpuTime - old.cpuTime) / (elapsedMs * 10000 * CPU_COUNT)) * 100, 0, 100)
+      : 0;
+    return {
       name: item.name,
       pid: item.pid,
-      cpu: Number(item.cpu || 0).toFixed(1),
-      mem: item.memRss ? (item.memRss / 1024 / 1024).toFixed(0) : item.memVsz ? (item.memVsz / 1024 / 1024).toFixed(0) : '0',
-    }));
+      cpu: cpu.toFixed(1),
+      mem: (item.memory / 1024 / 1024).toFixed(0),
+      _memory: item.memory,
+    };
+  })
+    .sort((a, b) => (Number(b.cpu) - Number(a.cpu)) || (b._memory - a._memory))
+    .slice(0, 10)
+    .map(({ _memory, ...item }) => item);
+
+  lastProcessSample = { at: now, byPid: currentByPid };
 }
 
 function scoreNetworkInterface(item) {
-  const text = `${item.iface || ''} ${item.ifaceName || ''} ${item.type || ''}`.toLowerCase();
+  const text = `${item.iface || ''} ${item.address || ''} ${item.mac || ''}`.toLowerCase();
   let score = 0;
-  if (item.ip4 && !item.internal) score += 100;
-  if (/ethernet|wi-?fi|wireless|wlan/.test(text)) score += 60;
-  if (/realtek|intel|broadcom|qualcomm|mediatek/.test(text)) score += 40;
+  if (item.family === 'IPv4' && !item.internal) score += 100;
+  if (/ethernet|wi-?fi|wireless|wlan|以太|无线/.test(text)) score += 60;
   if (/bluetooth/.test(text)) score -= 40;
   if (/mihomo|tun|tap|vpn|virtual|vmware|hyper-v|loopback|vethernet|docker|tailscale|zerotier/.test(text)) score -= 120;
   return score;
 }
 
-async function getWindowsNetBytes(interfaceName) {
-  if (process.platform !== 'win32' || !interfaceName) return null;
-  try {
-    const escaped = String(interfaceName).replace(/'/g, "''");
-    const script = [
-      "$ProgressPreference='SilentlyContinue'",
-      "$WarningPreference='SilentlyContinue'",
-      `$stats = Get-NetAdapterStatistics -Name '${escaped}' | Select-Object ReceivedBytes,SentBytes`,
-      "$stats | ConvertTo-Json -Compress",
-    ].join('; ');
-    const encoded = Buffer.from(script, 'utf16le').toString('base64');
-    const { stdout } = await execAsync(`powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encoded}`, { timeout: 10000, maxBuffer: 1024 * 1024 });
-    const parsed = JSON.parse((stdout || '').trim());
-    if (parsed && typeof parsed.ReceivedBytes === 'number' && typeof parsed.SentBytes === 'number') {
-      return { rx_bytes: parsed.ReceivedBytes, tx_bytes: parsed.SentBytes };
-    }
-  } catch {}
-  return null;
+function getPrimaryNetworkInterface() {
+  const entries = Object.entries(os.networkInterfaces())
+    .flatMap(([iface, addresses]) => (addresses || []).map(address => ({ iface, ...address })))
+    .filter(item => item.family === 'IPv4')
+    .sort((a, b) => scoreNetworkInterface(b) - scoreNetworkInterface(a));
+  return entries[0] || null;
+}
+
+function parseNetstatBytes(output) {
+  const line = String(output || '').split(/\r?\n/).find(item => {
+    const numbers = item.match(/\d[\d,]*/g);
+    return numbers && numbers.length >= 2;
+  });
+  if (!line) throw new Error('netstat -e output did not include byte counters');
+
+  const numbers = line.match(/\d[\d,]*/g).map(parseInteger);
+  return {
+    rxBytes: numbers[0],
+    txBytes: numbers[1],
+  };
 }
 
 async function refreshNetwork() {
-  const [networkStats, networkInterfaces] = await Promise.all([
-    withTimeout(si.networkStats(), [], 5000),
-    withTimeout(si.networkInterfaces(), [], 5000),
-  ]);
-
-  const sortedInterfaces = [...(networkInterfaces || [])].sort((a, b) => scoreNetworkInterface(b) - scoreNetworkInterface(a));
-  const primaryInterface = sortedInterfaces[0] || {};
-  const interfaceMap = new Map((networkInterfaces || []).map(item => [item.iface, item]));
-  let rankedStats = (networkStats || []).map(item => ({ ...item, _meta: interfaceMap.get(item.iface) || {} }))
-    .sort((a, b) => scoreNetworkInterface(b._meta) - scoreNetworkInterface(a._meta));
-  let preferred = rankedStats[0] || null;
-
-  if ((!preferred || scoreNetworkInterface(preferred._meta || {}) < scoreNetworkInterface(primaryInterface)) && primaryInterface.iface) {
-    const fallbackStats = await getWindowsNetBytes(primaryInterface.iface);
-    if (fallbackStats) {
-      preferred = { iface: primaryInterface.iface, ...fallbackStats, _meta: primaryInterface };
-      rankedStats = [preferred, ...rankedStats.filter(item => item.iface !== primaryInterface.iface)];
-    }
-  }
-
-  let rx = systemCache.network.rx || 0;
-  let tx = systemCache.network.tx || 0;
+  const output = await runCommand('netstat.exe', ['-e'], { timeoutMs: 15000, maxBuffer: 256 * 1024 });
   const now = Date.now();
-  const deltaSeconds = Math.max((now - lastNetworkAt) / 1000, 1);
+  const counters = parseNetstatBytes(output);
+  const previous = lastNetworkStats;
+  const elapsedSeconds = previous ? Math.max(1, (now - previous.at) / 1000) : 0;
+  const rx = previous ? Math.max(0, Math.round((counters.rxBytes - previous.rxBytes) / elapsedSeconds)) : 0;
+  const tx = previous ? Math.max(0, Math.round((counters.txBytes - previous.txBytes) / elapsedSeconds)) : 0;
+  const primary = getPrimaryNetworkInterface();
 
-  if (preferred) {
-    let previous = null;
-    if (Array.isArray(lastNetworkStats)) previous = lastNetworkStats.find(item => item.iface === preferred.iface) || null;
-    if (!previous && lastWindowsNetworkSample && lastWindowsNetworkSample.iface === preferred.iface) previous = lastWindowsNetworkSample;
-    if (previous) {
-      rx = Math.max(0, Math.round(((preferred.rx_bytes || 0) - (previous.rx_bytes || 0)) / deltaSeconds));
-      tx = Math.max(0, Math.round(((preferred.tx_bytes || 0) - (previous.tx_bytes || 0)) / deltaSeconds));
-    }
-  }
-
-  lastNetworkStats = rankedStats.map(item => ({ iface: item.iface, rx_bytes: item.rx_bytes || 0, tx_bytes: item.tx_bytes || 0 }));
-  if (preferred) lastWindowsNetworkSample = { iface: preferred.iface, rx_bytes: preferred.rx_bytes || 0, tx_bytes: preferred.tx_bytes || 0 };
-  lastNetworkAt = now;
-
-  const shownInterface = preferred?._meta || primaryInterface || {};
+  lastNetworkStats = { ...counters, at: now };
   systemCache.network = {
     rx,
     tx,
-    ip: shownInterface.ip4 || systemCache.network.ip || '127.0.0.1',
-    iface: shownInterface.iface || systemCache.network.iface || 'N/A',
+    ip: primary?.address || systemCache.network.ip || '127.0.0.1',
+    iface: primary?.iface || systemCache.network.iface || 'N/A',
   };
 }
 
 async function safeRefresh(label, fn) {
+  if (refreshLocks.has(label)) return;
+  refreshLocks.add(label);
+
   try {
     await fn();
   } catch (error) {
     console.error(`[refresh:${label}] ${error.message}`);
   } finally {
+    refreshLocks.delete(label);
     systemCache.uptime = os.uptime();
     systemCache.time = new Date().toISOString();
   }
@@ -456,8 +604,8 @@ function startRefreshLoops() {
   setInterval(() => safeRefresh('cpu', refreshCpu), 1000);
   setInterval(() => safeRefresh('memory', refreshMemory), 2000);
   setInterval(() => safeRefresh('disk', refreshDisk), 15000);
-  setInterval(() => safeRefresh('processes', refreshProcesses), 3000);
-  setInterval(() => safeRefresh('network', refreshNetwork), 3000);
+  setInterval(() => safeRefresh('processes', refreshProcesses), 30000);
+  setInterval(() => safeRefresh('network', refreshNetwork), 5000);
   setInterval(() => {
     systemCache.uptime = os.uptime();
     systemCache.time = new Date().toISOString();
@@ -473,7 +621,7 @@ function getRealtimeSnapshot() {
     disk: { ...systemCache.disk },
     uptime: systemCache.uptime || os.uptime(),
     processes: Array.isArray(systemCache.processes) ? [...systemCache.processes] : [],
-    dashboard: buildDashboardMeta(),
+    dashboard: getDashboardMeta(),
   };
 }
 
@@ -482,7 +630,7 @@ app.get('/api/operators', (_req, res) => {
 });
 
 app.get('/api/openclaw/status', (_req, res) => {
-  const meta = buildDashboardMeta();
+  const meta = getDashboardMeta();
   res.json({
     model: meta.currentModel.id,
     modelAlias: meta.currentModel.alias,
@@ -495,12 +643,12 @@ app.get('/api/openclaw/status', (_req, res) => {
 });
 
 app.get('/api/openclaw/models', (_req, res) => {
-  const meta = buildDashboardMeta();
+  const meta = getDashboardMeta();
   res.json(meta.installedModels);
 });
 
 app.get('/api/dashboard/meta', (_req, res) => {
-  res.json(buildDashboardMeta());
+  res.json(getDashboardMeta());
 });
 
 app.post('/api/openclaw/repair', (req, res) => {
@@ -520,10 +668,9 @@ wss.on('connection', socket => {
   socket.on('close', () => clearInterval(timer));
 });
 
-startRefreshLoops();
-
 server.listen(PORT, () => {
   console.log(`EVA PANEL ONLINE: http://localhost:${PORT}`);
+  setTimeout(startRefreshLoops, 500);
 });
 
 process.on('unhandledRejection', error => {

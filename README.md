@@ -55,7 +55,7 @@ npm start
 Then open:
 
 ```text
-http://localhost:3000
+http://localhost:1312
 ```
 
 ### Stable script-based workflow
@@ -135,12 +135,12 @@ The communication section reflects enabled local integrations/plugins such as:
 
 ### Port
 
-Default port is `3000`.
+Default port is `1312`.
 
 Override it with:
 
 ```cmd
-set PORT=3001 && npm start
+set PORT=1313 && npm start
 ```
 
 ## Logs
